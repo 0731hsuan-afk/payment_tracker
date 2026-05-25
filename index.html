@@ -484,7 +484,7 @@ function renderForm() {
         ${s.items.map(i=>`<option value="${i}" ${f.item===i?"selected":""}>${i}</option>`).join("")}
         <option value="__custom__" ${f.item==="__custom__"?"selected":""}>＋ 自行輸入</option>
       </select>
-      ${f.item==="__custom__" ? `<input class="input" id="form-custom" style="margin-top:8px;" placeholder="輸入項目名稱" value="${f.customItem}" oninput="state.form.customItem=this.value">` : ""}
+      ${f.item==="__custom__" ? `<input class="input" id="form-custom" style="margin-top:8px;" placeholder="輸入項目名稱" value="${f.customItem}" oninput="if(!this._composing)state.form.customItem=this.value" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;state.form.customItem=this.value">` : ""}
       <label class="label">付款金額 *</label>
       <input type="number" inputmode="decimal" class="input" id="form-amount" placeholder="0" value="${f.amount}" oninput="state.form.amount=this.value">
       <label class="label">付款方式 *</label>
@@ -493,7 +493,7 @@ function renderForm() {
         ${s.methods.map(m=>`<option value="${m}" ${f.method===m?"selected":""}>${m}</option>`).join("")}
       </select>
       <label class="label">備註（選填）</label>
-      <input class="input" id="form-note" placeholder="可留空" value="${f.note}" oninput="state.form.note=this.value">
+      <input class="input" id="form-note" placeholder="可留空" value="${f.note}" oninput="if(!this._composing)state.form.note=this.value" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;state.form.note=this.value">
       <div class="btn-row">
         <button class="cancel-btn" onclick="setTab('list');resetForm()">取消</button>
         <button class="save-btn" onclick="saveRecord()">${s.editId?"更新":"儲存"}</button>
@@ -521,7 +521,7 @@ function renderSettings(settledRecords) {
               ${list.map(v=>`<div class="tag"><span>${v}</span><button class="tag-x" onclick="removeFromList('${key}','${v}')">×</button></div>`).join("")}
             </div>
             <div class="add-row">
-              <input class="input" style="flex:1;margin-bottom:0;" placeholder="${ph}" id="new-${key}" onkeydown="if(event.key==='Enter')addToList('${key}')">
+              <input class="input" style="flex:1;margin-bottom:0;" placeholder="${ph}" id="new-${key}" oninput="if(!this._composing){}" oncompositionstart="this._composing=true" oncompositionend="this._composing=false" onkeydown="if(event.key==='Enter'&&!this._composing)addToList('${key}')">
               <button class="add-btn" onclick="addToList('${key}')">＋</button>
             </div>
           </div>
