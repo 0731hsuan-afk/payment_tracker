@@ -329,7 +329,7 @@ function render() {
     </header>
 
     <main class="main">
-      ${s.tab==="list" ? renderList(sorted, filtered, settled, settledRecords, months, total, activeRecords) : ""}
+      ${s.tab==="list" ? renderList(sorted, filtered, settledRecords, months, total, activeRecords) : ""}
       ${s.tab==="add" ? renderForm() : ""}
       ${s.tab==="settings" ? renderSettings(settledRecords) : ""}
     </main>
@@ -370,7 +370,7 @@ function render() {
   updateSyncBadge();
 }
 
-function renderList(sorted, filtered, settled, settledRecords, months, total, activeRecords) {
+function renderList(sorted, filtered, settledRecords, months, total, activeRecords) {
   const s = state;
   const selTotal = filtered.filter(r=>s.selected.has(r.id)).reduce((sum,r)=>sum+r.amount,0);
   return `
