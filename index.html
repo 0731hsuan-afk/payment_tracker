@@ -1,123 +1,711 @@
-const SHEET_NAME = "records";
-const CONFIG_SHEET = "config";
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="代付記帳">
+<title>代付記帳</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0;}
+body{font-family:'Noto Sans TC',sans-serif;background:#f5f4f0;min-height:100vh;max-width:480px;margin:0 auto;}
+input,select,textarea,button{font-family:inherit;}
+input[type=date]::-webkit-calendar-picker-indicator{opacity:0.4;}
+select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%23bbb' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-thumb{background:#ddd;border-radius:4px;}
 
-function doGet(e) {
-  const p = e.parameter;
-  const callback = p.callback; // JSONP callback
-  const action = p.action || "getAll";
-  let result;
-  try {
-    if (action === "getAll")            result = getAll();
-    else if (action === "getConfig")    result = getConfig();
-    else if (action === "saveRecord")   result = saveRecord(JSON.parse(p.record));
-    else if (action === "deleteRecord") result = deleteRecord(p.id);
-    else if (action === "settleRecord") result = settleRecord(JSON.parse(p.ids), p.settled === "true");
-    else if (action === "saveConfig")   result = saveConfig(
-      p.items ? JSON.parse(p.items) : null,
-      p.methods ? JSON.parse(p.methods) : null
-    );
-    else result = { error: "unknown action" };
-  } catch(err) {
-    result = { error: err.message };
-  }
+.app{display:flex;flex-direction:column;min-height:100vh;}
 
-  const json = JSON.stringify(result);
+/* Header */
+.header{background:#fff;padding:14px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #ebebeb;position:sticky;top:0;z-index:10;}
+.logo{font-size:22px;}
+.header-title{margin:0;font-size:18px;font-weight:800;color:#1a1a1a;flex:1;}
+.header-right{display:flex;align-items:center;gap:8px;}
+.sync-badge{font-size:11px;color:#999;background:#f0ede6;border-radius:20px;padding:3px 10px;white-space:nowrap;}
+.sync-badge.error{background:#ffd0d0;color:#d44;}
+.sync-badge.syncing{animation:pulse 1s ease-in-out infinite;}
+.icon-btn{background:none;border:1.5px solid #ebebeb;border-radius:10px;padding:6px 10px;cursor:pointer;color:#999;display:flex;align-items:center;}
+.text-btn{background:none;border:none;cursor:pointer;color:#FF6B6B;font-size:14px;font-weight:700;padding:4px 8px;}
 
-  // 如果有 callback 參數就用 JSONP，否則回傳一般 JSON
-  if (callback) {
-    return ContentService
-      .createTextOutput(`${callback}(${json})`)
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
-  return ContentService
-    .createTextOutput(json)
-    .setMimeType(ContentService.MimeType.JSON);
+/* Main */
+.main{flex:1;overflow-y:auto;padding:16px 16px 96px;}
+
+/* Summary card */
+.summary-card{background:linear-gradient(135deg,#FF6B6B 0%,#ff8e53 100%);border-radius:20px;padding:26px 24px 22px;margin-bottom:16px;color:white;text-align:center;box-shadow:0 6px 24px rgba(255,107,107,0.28);}
+.summary-label{font-size:12px;opacity:.82;margin-bottom:4px;}
+.summary-amount{font-size:36px;font-weight:800;letter-spacing:-1.5px;}
+.summary-count{font-size:12px;opacity:.75;margin-top:5px;}
+
+/* Filter */
+.filter-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;margin-bottom:14px;}
+.filter-btn{flex-shrink:0;background:#fff;border:1.5px solid #ebebeb;border-radius:20px;padding:5px 14px;font-size:13px;cursor:pointer;color:#999;}
+.filter-btn.active{background:#FF6B6B;border-color:#FF6B6B;color:white;font-weight:700;}
+
+/* Records */
+.rec-list{display:flex;flex-direction:column;gap:10px;}
+.card{background:#fff;border-radius:16px;padding:14px 16px;border:1px solid #ebebeb;box-shadow:0 1px 6px rgba(0,0,0,0.05);position:relative;transition:box-shadow .15s;}
+.card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.09);}
+.card.selectable{cursor:pointer;}
+.card.selected{border-color:#FF6B6B;box-shadow:0 0 0 2px rgba(255,107,107,0.2);}
+.card-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.card-date{font-size:12px;color:#999;}
+.card-amt{font-size:19px;font-weight:800;color:#FF6B6B;letter-spacing:-.5px;}
+.card-item{font-size:15px;font-weight:700;color:#1a1a1a;}
+.card-tag{font-size:12px;background:#f0ede6;border-radius:20px;padding:2px 12px;color:#999;}
+.card-note{font-size:12px;color:#999;margin-top:4px;}
+.card-actions{display:flex;gap:8px;margin-top:10px;justify-content:flex-end;}
+.edit-btn{background:none;border:1.5px solid #ebebeb;border-radius:8px;padding:4px 12px;font-size:13px;cursor:pointer;color:#999;}
+.settle-btn{background:none;border:1.5px solid #b8e6b8;border-radius:8px;padding:4px 12px;font-size:13px;cursor:pointer;color:#3a9a3a;}
+.del-btn{background:none;border:1.5px solid #ffd0d0;border-radius:8px;padding:4px 12px;font-size:13px;cursor:pointer;color:#d44;}
+.checkbox{position:absolute;top:14px;right:14px;width:22px;height:22px;border-radius:6px;border:2px solid #ebebeb;display:flex;align-items:center;justify-content:center;background:#fff;}
+.checkbox.on{background:#FF6B6B;border-color:#FF6B6B;}
+
+/* Settled */
+.settled-toggle{width:100%;background:none;border:1.5px solid #ebebeb;border-radius:12px;padding:10px 16px;font-size:14px;cursor:pointer;color:#999;display:flex;justify-content:space-between;align-items:center;}
+.settled-badge{background:#e8f5e8;color:#3a9a3a;font-size:11px;font-weight:700;border-radius:20px;padding:2px 10px;}
+
+/* Select bar */
+.select-bar{background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:14px;border:1px solid #ebebeb;display:flex;justify-content:space-between;align-items:center;}
+.export-img-btn{background:#FF6B6B;border:none;border-radius:12px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer;color:white;display:flex;align-items:center;gap:6px;}
+.export-img-btn:disabled{opacity:0.4;}
+
+/* Empty */
+.empty{text-align:center;color:#999;margin-top:64px;}
+.empty-icon{font-size:46px;margin-bottom:12px;}
+
+/* Form */
+.form{max-width:440px;margin:0 auto;}
+.form-title{font-size:20px;font-weight:800;color:#1a1a1a;margin-bottom:20px;}
+.label{display:block;font-size:13px;font-weight:600;color:#999;margin-bottom:6px;margin-top:16px;}
+.input{width:100%;border:1.5px solid #ebebeb;border-radius:12px;padding:11px 14px;font-size:15px;background:#fff;color:#1a1a1a;outline:none;}
+.input:focus{border-color:#FF6B6B;}
+.btn-row{display:flex;gap:12px;margin-top:24px;}
+.cancel-btn{flex:1;background:none;border:1.5px solid #ebebeb;border-radius:12px;padding:13px;font-size:15px;cursor:pointer;color:#999;}
+.save-btn{flex:2;background:#FF6B6B;border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;color:white;}
+.save-btn:active{opacity:.85;}
+
+/* Settings */
+.sec{background:#fff;border-radius:16px;padding:16px;margin-bottom:14px;border:1px solid #ebebeb;}
+.sec-head{font-size:11px;font-weight:700;color:#999;margin-bottom:12px;text-transform:uppercase;letter-spacing:1.2px;}
+.tag-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.tag{display:flex;align-items:center;gap:6px;background:#f5f3ed;border-radius:20px;padding:5px 12px;font-size:14px;color:#1a1a1a;}
+.tag-x{background:none;border:none;cursor:pointer;color:#ccc;font-size:17px;padding:0;line-height:1;}
+.add-row{display:flex;gap:8px;align-items:center;}
+.add-btn{background:#FF6B6B;border:none;border-radius:12px;padding:11px 18px;font-size:18px;cursor:pointer;color:white;font-weight:700;flex-shrink:0;}
+.danger-btn{background:none;border:1.5px solid #ffd0d0;border-radius:12px;padding:12px 20px;font-size:14px;cursor:pointer;color:#d44;display:block;margin-bottom:10px;}
+
+/* Nav */
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#fff;border-top:1px solid #ebebeb;display:flex;justify-content:space-around;align-items:center;padding:8px 0 14px;z-index:20;}
+.nav-btn{background:none;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:#999;padding:4px 28px;}
+.nav-btn.active{color:#FF6B6B;font-weight:700;}
+.fab{background:#FF6B6B;border:none;border-radius:28px;width:60px;height:60px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(255,107,107,0.42);margin-top:-22px;}
+
+/* Overlay */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;}
+.modal{background:#fff;border-radius:20px;padding:28px 24px;width:100%;max-width:340px;}
+.modal-title{font-size:18px;font-weight:800;margin-bottom:8px;color:#1a1a1a;}
+.modal-body{font-size:14px;color:#999;margin-bottom:24px;line-height:1.7;}
+.danger-confirm{flex:2;background:#FF6B6B;border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;color:white;}
+
+/* Toast */
+.toast{position:fixed;top:68px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:white;padding:10px 22px;border-radius:20px;font-size:14px;font-weight:700;z-index:999;pointer-events:none;white-space:nowrap;opacity:0;transition:opacity .2s;}
+.toast.show{opacity:1;}
+.toast.err{background:#d44;}
+
+/* Loading */
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;color:#aaa;gap:12px;}
+
+/* Preview */
+.preview-wrap{flex:1;overflow-y:auto;padding:16px 12px 32px;}
+.preview-img{width:100%;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.12);}
+
+/* Sync status */
+.sync-info{background:#f0fff0;border:1.5px solid #b8e6b8;border-radius:16px;padding:16px;margin-bottom:14px;}
+.sync-info p{font-size:13px;color:#555;line-height:1.8;margin:0;}
+
+@keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="loading" id="loading">
+    <div style="font-size:44px;">💸</div>
+    <div>連線到 Google Sheets…</div>
+    <div style="font-size:12px;color:#bbb;">首次載入需要幾秒鐘</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbxpVcnTlBdI-IpVqE4HcQeaWT-rB20AFaX8_DLTrklWP_Zp-tIUqpepk2JaQ8pxyoGaWA/exec";
+const DEFAULT_ITEMS = ["電費","勞保費","健保費","房租","水費","網路費"];
+const DEFAULT_METHODS = ["現金","轉帳","Line Pay","信用卡","票據","悠遊付"];
+const MONTHS_ZH = ["一月","二月","三月","四月","五月","六月","七月","八月","九月","十月","十一月","十二月"];
+
+// ── State ──────────────────────────────────────────────────
+let state = {
+  records: [], items: [...DEFAULT_ITEMS], methods: [...DEFAULT_METHODS],
+  tab: "list", syncing: false, lastSync: null, syncError: false,
+  filterMonth: "all", showSettled: false, selectMode: false, selected: new Set(),
+  editId: null, previewUrl: null, previewIds: [],
+  form: { date: todayStr(), item: "", customItem: "", amount: "", method: "", note: "" },
+  confirmCb: null, confirmMsg: ""
+};
+
+// ── Utils ──────────────────────────────────────────────────
+function todayStr() { return new Date().toISOString().slice(0,10); }
+function formatDate(d) {
+  if (!d) return "";
+  const dt = new Date(d);
+  return `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,"0")}/${String(dt.getDate()).padStart(2,"0")}`;
+}
+function formatMoney(n) { return Number(n).toLocaleString("zh-TW"); }
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+
+function showToast(msg, type="ok") {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (type==="err"?" err":"");
+  setTimeout(() => t.className = "toast", 2400);
 }
 
-function getOrCreateSheet(name, headers) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-    if (headers) sheet.appendRow(headers);
-  }
-  return sheet;
-}
-
-function getAll() {
-  const sheet = getOrCreateSheet(SHEET_NAME, ["id","date","item","amount","method","note","settled"]);
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return { records: [] };
-  const headers = data[0];
-  const records = data.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = row[i]);
-    obj.amount = Number(obj.amount);
-    obj.settled = obj.settled === true || obj.settled === "TRUE";
-    return obj;
+// ── API（JSONP，繞過 CORS）──────────────────────────────────
+function api(action, body={}) {
+  return new Promise((resolve, reject) => {
+    const cbName = "cb_" + Math.random().toString(36).slice(2);
+    const params = new URLSearchParams({ action, callback: cbName });
+    Object.entries(body).forEach(([k,v]) => {
+      params.set(k, typeof v === "object" ? JSON.stringify(v) : String(v));
+    });
+    const timeout = setTimeout(() => {
+      delete window[cbName];
+      const s = document.getElementById(cbName);
+      if (s) s.remove();
+      reject(new Error("timeout"));
+    }, 15000);
+    window[cbName] = (data) => {
+      clearTimeout(timeout);
+      delete window[cbName];
+      const s = document.getElementById(cbName);
+      if (s) s.remove();
+      resolve(data);
+    };
+    const script = document.createElement("script");
+    script.id = cbName;
+    script.src = API_URL + "?" + params.toString();
+    script.onerror = () => {
+      clearTimeout(timeout);
+      delete window[cbName];
+      script.remove();
+      reject(new Error("載入失敗"));
+    };
+    document.head.appendChild(script);
   });
-  return { records };
 }
 
-function saveRecord(r) {
-  const sheet = getOrCreateSheet(SHEET_NAME, ["id","date","item","amount","method","note","settled"]);
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(r.id)) {
-      sheet.getRange(i+1,1,1,7).setValues([[r.id,r.date,r.item,r.amount,r.method,r.note||"",r.settled||false]]);
-      return { ok: true, action: "updated" };
-    }
+async function withSync(fn) {
+  state.syncing = true; state.syncError = false; updateSyncBadge();
+  try {
+    await fn();
+    state.lastSync = new Date();
+  } catch(e) {
+    state.syncError = true;
+    showToast("同步失敗，請重試", "err");
+  } finally {
+    state.syncing = false; updateSyncBadge();
   }
-  sheet.appendRow([r.id,r.date,r.item,r.amount,r.method,r.note||"",r.settled||false]);
-  return { ok: true, action: "created" };
 }
 
-function deleteRecord(id) {
-  const sheet = getOrCreateSheet(SHEET_NAME, ["id","date","item","amount","method","note","settled"]);
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(id)) {
-      sheet.deleteRow(i+1);
-      return { ok: true };
-    }
-  }
-  return { error: "not found" };
+function updateSyncBadge() {
+  const b = document.getElementById("sync-badge");
+  if (!b) return;
+  if (state.syncing) { b.className="sync-badge syncing"; b.textContent="⟳ 同步中"; }
+  else if (state.syncError) { b.className="sync-badge error"; b.textContent="⚠ 離線"; }
+  else if (state.lastSync) { b.className="sync-badge"; b.textContent="✓ 已同步"; }
 }
 
-function settleRecord(ids, settled) {
-  const sheet = getOrCreateSheet(SHEET_NAME, ["id","date","item","amount","method","note","settled"]);
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (ids.map(String).includes(String(data[i][0]))) {
-      sheet.getRange(i+1,7).setValue(settled);
-    }
-  }
-  return { ok: true };
+// ── Canvas 繪圖 ────────────────────────────────────────────
+function drawReceiptCanvas(records) {
+  const DPR=2, W=680, PAD=32;
+  const COLS=[PAD,148,390,520,W-PAD];
+  const ROW_H=44, ROW_H_NOTE=62, TITLE_H=64, TH_H=40, FOOTER_H=56, STAMP_H=28;
+  const total = records.reduce((s,r)=>s+r.amount,0);
+  const rowHeights = records.map(r=>r.note?ROW_H_NOTE:ROW_H);
+  const tableBodyH = rowHeights.reduce((s,h)=>s+h,0);
+  const totalH = TITLE_H+TH_H+tableBodyH+FOOTER_H+STAMP_H+8;
+  const canvas = document.createElement("canvas");
+  canvas.width=W*DPR; canvas.height=totalH*DPR;
+  const ctx=canvas.getContext("2d"); ctx.scale(DPR,DPR);
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,totalH);
+  ctx.fillStyle="#FF6B6B"; ctx.fillRect(0,0,W,TITLE_H);
+  ctx.fillStyle="#fff"; ctx.font="bold 20px Arial,sans-serif";
+  ctx.textBaseline="middle"; ctx.textAlign="left";
+  ctx.fillText("代付明細",PAD,TITLE_H/2-8);
+  ctx.font="12px Arial,sans-serif"; ctx.fillStyle="rgba(255,255,255,0.82)";
+  ctx.fillText(`共 ${records.length} 筆　合計 NT$ ${formatMoney(total)}`,PAD,TITLE_H/2+12);
+  ctx.fillStyle="#fff0f0"; ctx.fillRect(0,TITLE_H,W,TH_H);
+  const headers=["繳費時間","項目","金額","支付方式"];
+  const colAligns=["left","left","right","left"];
+  const colRights=[COLS[1],COLS[2],COLS[3],COLS[4]];
+  ctx.fillStyle="#FF6B6B"; ctx.font="bold 12px Arial,sans-serif"; ctx.textBaseline="middle";
+  headers.forEach((h,i)=>{
+    ctx.textAlign=colAligns[i];
+    ctx.fillText(h,colAligns[i]==="right"?colRights[i]-8:COLS[i]+8,TITLE_H+TH_H/2);
+  });
+  ctx.strokeStyle="#ffcccc"; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(0,TITLE_H+TH_H); ctx.lineTo(W,TITLE_H+TH_H); ctx.stroke();
+  let curY=TITLE_H+TH_H;
+  records.forEach((r,idx)=>{
+    const rh=rowHeights[idx], hasNote=!!r.note;
+    ctx.fillStyle=idx%2===0?"#fff":"#fdfcfa"; ctx.fillRect(0,curY,W,rh);
+    const mainY=hasNote?curY+18:curY+rh/2, noteY=curY+38;
+    ctx.textBaseline="middle";
+    ctx.fillStyle="#777"; ctx.font="13px Arial,sans-serif"; ctx.textAlign="left";
+    ctx.fillText(formatDate(r.date),COLS[0]+8,mainY);
+    ctx.fillStyle="#1a1a1a"; ctx.font="bold 13px Arial,sans-serif"; ctx.textAlign="left";
+    ctx.fillText(r.item,COLS[1]+8,mainY);
+    if(hasNote){ctx.fillStyle="#aaa";ctx.font="11px Arial,sans-serif";ctx.fillText(r.note,COLS[1]+8,noteY);}
+    ctx.fillStyle="#FF6B6B"; ctx.font="bold 14px Arial,sans-serif"; ctx.textAlign="right";
+    ctx.fillText(formatMoney(r.amount),COLS[3]-8,mainY);
+    ctx.fillStyle="#555"; ctx.font="13px Arial,sans-serif"; ctx.textAlign="left";
+    ctx.fillText(r.method,COLS[3]+8,mainY);
+    ctx.strokeStyle="#f0ede6"; ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.moveTo(PAD,curY+rh); ctx.lineTo(W-PAD,curY+rh); ctx.stroke();
+    curY+=rh;
+  });
+  const footY=curY;
+  ctx.fillStyle="#fff0f0"; ctx.fillRect(0,footY,W,FOOTER_H);
+  ctx.strokeStyle="#FF6B6B"; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(0,footY); ctx.lineTo(W,footY); ctx.stroke();
+  ctx.fillStyle="#FF6B6B"; ctx.font="bold 14px Arial,sans-serif";
+  ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.fillText("合計",PAD,footY+FOOTER_H/2);
+  ctx.font="bold 20px Arial,sans-serif"; ctx.textAlign="right";
+  ctx.fillText(`NT$ ${formatMoney(total)}`,W-PAD,footY+FOOTER_H/2);
+  ctx.fillStyle="#ccc"; ctx.font="11px Arial,sans-serif";
+  ctx.textAlign="right"; ctx.textBaseline="top";
+  ctx.fillText(`匯出時間：${new Date().toLocaleString("zh-TW")}`,W-PAD,footY+FOOTER_H+4);
+  return canvas;
 }
 
-function getConfig() {
-  const sheet = getOrCreateSheet(CONFIG_SHEET, ["key","value"]);
-  const data = sheet.getDataRange().getValues();
-  const config = {};
-  data.slice(1).forEach(row => { config[row[0]] = row[1]; });
-  return {
-    items: config.items ? JSON.parse(config.items) : null,
-    methods: config.methods ? JSON.parse(config.methods) : null,
+// ── Render ────────────────────────────────────────────────
+function render() {
+  const app = document.getElementById("app");
+  const s = state;
+  const activeRecords = s.records.filter(r=>!r.settled);
+  const settledRecords = s.records.filter(r=>r.settled);
+  const months = [...new Set(activeRecords.map(r=>r.date.slice(0,7)))].sort().reverse();
+  const filtered = s.filterMonth==="all" ? activeRecords : activeRecords.filter(r=>r.date.startsWith(s.filterMonth));
+  const total = filtered.reduce((sum,r)=>sum+r.amount,0);
+  const sorted = filtered.slice().sort((a,b)=>b.date.localeCompare(a.date));
+
+  if (s.previewUrl) { renderPreview(app); return; }
+
+  app.innerHTML = `
+    <header class="header">
+      ${s.selectMode ? `
+        <button class="text-btn" onclick="exitSelect()">取消</button>
+        <span class="header-title" style="font-size:15px;">已選 ${s.selected.size} 筆</span>
+        <button class="text-btn" onclick="toggleAll()">${s.selected.size===filtered.length?"取消全選":"全選"}</button>
+      ` : `
+        <span class="logo">💸</span>
+        <h1 class="header-title">代付記帳</h1>
+        <div class="header-right">
+          <span class="sync-badge" id="sync-badge">${s.syncing?"⟳ 同步中":s.syncError?"⚠ 離線":s.lastSync?"✓ 已同步":"雲端同步"}</span>
+          ${s.tab==="list" && activeRecords.length>0 ? `<button class="icon-btn" onclick="setSelectMode(true)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <rect x="3" y="3" width="5" height="5" rx="1"/><rect x="3" y="10" width="5" height="5" rx="1"/><rect x="3" y="17" width="5" height="5" rx="1"/>
+              <line x1="12" y1="5.5" x2="21" y2="5.5"/><line x1="12" y1="12.5" x2="21" y2="12.5"/><line x1="12" y1="19.5" x2="21" y2="19.5"/>
+            </svg>
+          </button>` : ""}
+        </div>
+      `}
+    </header>
+
+    <main class="main">
+      ${s.tab==="list" ? renderList(sorted, filtered, settled, settledRecords, months, total, activeRecords) : ""}
+      ${s.tab==="add" ? renderForm() : ""}
+      ${s.tab==="settings" ? renderSettings(settledRecords) : ""}
+    </main>
+
+    <nav class="nav">
+      ${s.selectMode ? `
+        <button class="export-img-btn" style="width:calc(100% - 32px);margin:0 16px;justify-content:center;" onclick="exportImage()" ${s.selected.size===0?"disabled":""}>
+          📸 產生 ${s.selected.size} 筆明細圖片
+        </button>
+      ` : `
+        <button class="nav-btn ${s.tab==="list"?"active":""}" onclick="setTab('list')">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>記錄</span>
+        </button>
+        <button class="fab" onclick="setTab('add');resetForm()">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button class="nav-btn ${s.tab==="settings"?"active":""}" onclick="setTab('settings')">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>設定</span>
+        </button>
+      `}
+    </nav>
+
+    ${s.confirmCb ? `
+      <div class="overlay" onclick="closeConfirm()">
+        <div class="modal" onclick="event.stopPropagation()">
+          <div class="modal-title">確認</div>
+          <div class="modal-body">${s.confirmMsg}</div>
+          <div class="btn-row">
+            <button class="cancel-btn" onclick="closeConfirm()">取消</button>
+            <button class="danger-confirm" onclick="doConfirm()">確定</button>
+          </div>
+        </div>
+      </div>
+    ` : ""}
+  `;
+  updateSyncBadge();
+}
+
+function renderList(sorted, filtered, settled, settledRecords, months, total, activeRecords) {
+  const s = state;
+  const selTotal = filtered.filter(r=>s.selected.has(r.id)).reduce((sum,r)=>sum+r.amount,0);
+  return `
+    ${!s.selectMode ? `
+      <div class="summary-card">
+        <div class="summary-label">待結算合計</div>
+        <div class="summary-amount">NT$ ${formatMoney(total)}</div>
+        <div class="summary-count">${filtered.length} 筆未結算</div>
+      </div>
+    ` : `
+      <div class="select-bar">
+        <div>
+          <div style="font-size:12px;color:#999;">已選取合計</div>
+          <div style="font-size:20px;font-weight:800;color:#FF6B6B;">NT$ ${formatMoney(selTotal)}</div>
+        </div>
+        <button class="export-img-btn" onclick="exportImage()" ${s.selected.size===0?"disabled":""}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          產生圖片
+        </button>
+      </div>
+    `}
+
+    ${!s.selectMode && months.length>1 ? `
+      <div class="filter-row">
+        <button class="filter-btn ${s.filterMonth==="all"?"active":""}" onclick="setFilter('all')">全部</button>
+        ${months.map(m=>`<button class="filter-btn ${s.filterMonth===m?"active":""}" onclick="setFilter('${m}')">${m.replace("-","/")}</button>`).join("")}
+      </div>
+    ` : ""}
+
+    ${sorted.length===0 ? `
+      <div class="empty">
+        <div class="empty-icon">📋</div>
+        <div style="font-size:15px;">沒有待結算記錄</div>
+        <div style="font-size:13px;color:#bbb;margin-top:6px;">點下方 ＋ 新增第一筆</div>
+      </div>
+    ` : `
+      <div class="rec-list">
+        ${sorted.map(r => {
+          const isSel = s.selected.has(r.id);
+          return `
+            <div class="card ${s.selectMode?"selectable":""} ${isSel?"selected":""}" onclick="${s.selectMode?`toggleSelect('${r.id}')`:""}" >
+              ${s.selectMode ? `<div class="checkbox ${isSel?"on":""}">
+                ${isSel?`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>`:""}
+              </div>` : ""}
+              <div class="card-row">
+                <span class="card-date">${formatDate(r.date)}</span>
+                <span class="card-amt">NT$ ${formatMoney(r.amount)}</span>
+              </div>
+              <div class="card-row">
+                <span class="card-item">${r.item}</span>
+                <span class="card-tag">${r.method}</span>
+              </div>
+              ${r.note ? `<div class="card-note">備註：${r.note}</div>` : ""}
+              ${!s.selectMode ? `
+                <div class="card-actions">
+                  <button class="edit-btn" onclick="editRecord('${r.id}')">✏️ 編輯</button>
+                  <button class="settle-btn" onclick="markSettled(['${r.id}'],true)">✓ 結算</button>
+                  <button class="del-btn" onclick="confirmDelete('${r.id}')">🗑</button>
+                </div>
+              ` : ""}
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `}
+
+    ${!s.selectMode && settledRecords.length>0 ? `
+      <div style="margin-top:24px;">
+        <button class="settled-toggle" onclick="toggleSettled()">
+          <span>已結算記錄（${settledRecords.length} 筆）</span>
+          <span style="font-size:11px;transition:transform .2s;transform:${s.showSettled?"rotate(180deg)":"none"}">▼</span>
+        </button>
+        ${s.showSettled ? `
+          <div class="rec-list" style="margin-top:10px;">
+            ${settledRecords.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`
+              <div class="card" style="opacity:.6;">
+                <div style="position:absolute;top:10px;right:10px;"><span class="settled-badge">已結算</span></div>
+                <div class="card-row">
+                  <span class="card-date">${formatDate(r.date)}</span>
+                  <span class="card-amt" style="color:#aaa;">NT$ ${formatMoney(r.amount)}</span>
+                </div>
+                <div class="card-row">
+                  <span class="card-item" style="color:#aaa;">${r.item}</span>
+                  <span class="card-tag">${r.method}</span>
+                </div>
+                ${r.note?`<div class="card-note">備註：${r.note}</div>`:""}
+                <div class="card-actions" style="margin-top:8px;">
+                  <button class="edit-btn" onclick="markSettled(['${r.id}'],false)">↩ 取消結算</button>
+                  <button class="del-btn" onclick="confirmDelete('${r.id}')">🗑</button>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        ` : ""}
+      </div>
+    ` : ""}
+  `;
+}
+
+function renderForm() {
+  const s = state;
+  const f = s.form;
+  return `
+    <div class="form">
+      <h2 class="form-title">${s.editId?"✏️ 編輯記錄":"＋ 新增代付"}</h2>
+      <label class="label">付款時間 *</label>
+      <input type="date" class="input" value="${f.date}" onchange="setForm('date',this.value)">
+      <label class="label">付款項目 *</label>
+      <select class="input" onchange="setForm('item',this.value)">
+        <option value="">請選擇…</option>
+        ${s.items.map(i=>`<option value="${i}" ${f.item===i?"selected":""}>${i}</option>`).join("")}
+        <option value="__custom__" ${f.item==="__custom__"?"selected":""}>＋ 自行輸入</option>
+      </select>
+      ${f.item==="__custom__" ? `<input class="input" style="margin-top:8px;" placeholder="輸入項目名稱" value="${f.customItem}" oninput="setForm('customItem',this.value)">` : ""}
+      <label class="label">付款金額 *</label>
+      <input type="number" inputmode="decimal" class="input" placeholder="0" value="${f.amount}" oninput="setForm('amount',this.value)">
+      <label class="label">付款方式 *</label>
+      <select class="input" onchange="setForm('method',this.value)">
+        <option value="">請選擇…</option>
+        ${s.methods.map(m=>`<option value="${m}" ${f.method===m?"selected":""}>${m}</option>`).join("")}
+      </select>
+      <label class="label">備註（選填）</label>
+      <input class="input" placeholder="可留空" value="${f.note}" oninput="setForm('note',this.value)">
+      <div class="btn-row">
+        <button class="cancel-btn" onclick="setTab('list');resetForm()">取消</button>
+        <button class="save-btn" onclick="saveRecord()">${s.editId?"更新":"儲存"}</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderSettings(settledRecords) {
+  const s = state;
+  return `
+    <div class="form">
+      <h2 class="form-title">⚙️ 設定</h2>
+      <div class="sync-info">
+        <p>✅ 資料儲存在 Google Sheets<br>📱 手機、電腦開啟都是同一份資料<br>${s.lastSync?"🕐 最後同步："+s.lastSync.toLocaleTimeString("zh-TW"):""}</p>
+      </div>
+      ${["items","methods"].map(key => {
+        const title = key==="items"?"付款項目":"付款方式";
+        const list = s[key];
+        const ph = key==="items"?"新增項目":"新增方式";
+        return `
+          <div class="sec">
+            <div class="sec-head">${title}</div>
+            <div class="tag-wrap">
+              ${list.map(v=>`<div class="tag"><span>${v}</span><button class="tag-x" onclick="removeFromList('${key}','${v}')">×</button></div>`).join("")}
+            </div>
+            <div class="add-row">
+              <input class="input" style="flex:1;margin-bottom:0;" placeholder="${ph}" id="new-${key}" onkeydown="if(event.key==='Enter')addToList('${key}')">
+              <button class="add-btn" onclick="addToList('${key}')">＋</button>
+            </div>
+          </div>
+        `;
+      }).join("")}
+      <div class="sec">
+        <div class="sec-head">危險區域</div>
+        <button class="danger-btn" onclick="confirmClearSettled(${settledRecords.length})">清除已結算記錄（${settledRecords.length} 筆）</button>
+        <button class="danger-btn" style="margin-bottom:0;" onclick="confirmClearAll()">清除全部記錄</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderPreview(app) {
+  app.innerHTML = `
+    <header class="header">
+      <button class="text-btn" onclick="state.previewUrl=null;render()">← 返回</button>
+      <span class="header-title" style="font-size:16px;">圖片預覽</span>
+      <button class="save-btn" style="flex:none;padding:7px 14px;font-size:13px;" onclick="openImageTab()">開新分頁儲存</button>
+    </header>
+    <div class="preview-wrap">
+      <p style="font-size:13px;color:#aaa;text-align:center;margin-bottom:12px;">長按圖片可儲存或直接分享</p>
+      <img class="preview-img" src="${state.previewUrl}" alt="代付明細">
+      <button class="save-btn" style="width:100%;margin-top:16px;" onclick="openImageTab()">🔗 開新分頁儲存圖片</button>
+      <button class="cancel-btn" style="width:100%;margin-top:10px;" onclick="markSettled(state.previewIds,true);exitSelect()">✓ 不下載，直接標記為已結算</button>
+    </div>
+  `;
+}
+
+// ── Actions ────────────────────────────────────────────────
+function setTab(t) { state.tab=t; render(); }
+function setFilter(m) { state.filterMonth=m; render(); }
+function toggleSettled() { state.showSettled=!state.showSettled; render(); }
+function setSelectMode(v) { state.selectMode=v; if(!v){state.selected=new Set();} render(); }
+function exitSelect() { state.selectMode=false; state.selected=new Set(); state.previewUrl=null; state.previewIds=[]; render(); }
+function toggleAll() {
+  const active = state.records.filter(r=>!r.settled);
+  const filtered = state.filterMonth==="all" ? active : active.filter(r=>r.date.startsWith(state.filterMonth));
+  if (state.selected.size===filtered.length) state.selected=new Set();
+  else state.selected=new Set(filtered.map(r=>r.id));
+  render();
+}
+function toggleSelect(id) {
+  if(state.selected.has(id)) state.selected.delete(id);
+  else state.selected.add(id);
+  render();
+}
+function setForm(k,v) { state.form[k]=v; if(k==="item") state.form.customItem=""; render(); }
+function resetForm() { state.form={date:todayStr(),item:"",customItem:"",amount:"",method:"",note:""}; state.editId=null; }
+function closeConfirm() { state.confirmCb=null; state.confirmMsg=""; render(); }
+function doConfirm() { if(state.confirmCb) state.confirmCb(); closeConfirm(); }
+
+function confirmDelete(id) {
+  state.confirmMsg="確定刪除這筆記錄？此操作無法還原。";
+  state.confirmCb=()=>deleteRecord(id);
+  render();
+}
+function confirmClearSettled(count) {
+  state.confirmMsg=`確定清除所有已結算記錄（${count} 筆）？`;
+  state.confirmCb=async()=>{
+    const ids=state.records.filter(r=>r.settled).map(r=>r.id);
+    state.records=state.records.filter(r=>!r.settled);
+    render();
+    await withSync(()=>Promise.all(ids.map(id=>api("deleteRecord",{id}))));
+    render(); showToast("已清除已結算記錄");
   };
+  render();
+}
+function confirmClearAll() {
+  state.confirmMsg="確定清除所有記錄？此操作無法還原。";
+  state.confirmCb=async()=>{
+    const ids=state.records.map(r=>r.id);
+    state.records=[];
+    render();
+    await withSync(()=>Promise.all(ids.map(id=>api("deleteRecord",{id}))));
+    render(); showToast("已清除所有記錄");
+  };
+  render();
 }
 
-function saveConfig(items, methods) {
-  const sheet = getOrCreateSheet(CONFIG_SHEET, ["key","value"]);
-  const data = sheet.getDataRange().getValues();
-  const keyRows = {};
-  data.slice(1).forEach((row, i) => { keyRows[row[0]] = i+2; });
-  if (items !== null) {
-    if (keyRows["items"]) sheet.getRange(keyRows["items"],2).setValue(JSON.stringify(items));
-    else sheet.appendRow(["items", JSON.stringify(items)]);
+async function saveRecord() {
+  const f = state.form;
+  const itemName = f.item==="__custom__" ? f.customItem.trim() : f.item;
+  if (!f.date||!itemName||!f.amount||!f.method) { showToast("請填寫所有必填欄位","err"); return; }
+  if (isNaN(+f.amount)||+f.amount<=0) { showToast("金額格式不正確","err"); return; }
+  const rec = { id:state.editId||genId(), date:f.date, item:itemName, amount:+f.amount, method:f.method, note:f.note||"", settled:false };
+  if (state.editId) {
+    const ex=state.records.find(r=>r.id===state.editId);
+    if(ex) rec.settled=ex.settled;
+    state.records=state.records.map(r=>r.id===state.editId?rec:r);
+  } else {
+    state.records=[rec,...state.records];
   }
-  if (methods !== null) {
-    if (keyRows["methods"]) sheet.getRange(keyRows["methods"],2).setValue(JSON.stringify(methods));
-    else sheet.appendRow(["methods", JSON.stringify(methods)]);
-  }
-  return { ok: true };
+  resetForm(); setTab("list"); showToast(state.editId?"已更新":"已新增");
+  await withSync(()=>api("saveRecord",{record:rec}));
+  render();
 }
+
+async function deleteRecord(id) {
+  state.records=state.records.filter(r=>r.id!==id);
+  render(); showToast("已刪除");
+  await withSync(()=>api("deleteRecord",{id}));
+  render();
+}
+
+async function markSettled(ids, settled) {
+  state.records=state.records.map(r=>ids.includes(r.id)?{...r,settled}:r);
+  render(); showToast(settled?`已標記 ${ids.length} 筆為已結算`:"已取消結算標記");
+  await withSync(()=>api("settleRecord",{ids,settled}));
+  render();
+}
+
+function editRecord(id) {
+  const r=state.records.find(x=>x.id===id);
+  if(!r) return;
+  const isCustom=!state.items.includes(r.item);
+  state.form={date:r.date,item:isCustom?"__custom__":r.item,customItem:isCustom?r.item:"",amount:String(r.amount),method:r.method,note:r.note||""};
+  state.editId=id; setTab("add");
+}
+
+function exportImage() {
+  if(state.selected.size===0){showToast("請先選取記錄","err");return;}
+  const active=state.records.filter(r=>!r.settled);
+  const filtered=state.filterMonth==="all"?active:active.filter(r=>r.date.startsWith(state.filterMonth));
+  const sel=filtered.filter(r=>state.selected.has(r.id)).sort((a,b)=>a.date.localeCompare(b.date));
+  try {
+    const canvas=drawReceiptCanvas(sel);
+    state.previewUrl=canvas.toDataURL("image/png");
+    state.previewIds=sel.map(r=>r.id);
+    render();
+  } catch(e) { showToast("產生圖片失敗","err"); }
+}
+
+function openImageTab() {
+  const w=window.open("","_blank");
+  if(w){
+    const date=new Date().toLocaleDateString("zh-TW");
+    w.document.write(`<html><head><meta charset="utf-8"><title>代付明細 ${date}</title>
+      <style>body{margin:0;background:#f5f4f0;display:flex;flex-direction:column;align-items:center;padding:24px;font-family:sans-serif;}
+      img{max-width:100%;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.15);}
+      p{color:#aaa;font-size:13px;margin-bottom:16px;text-align:center;line-height:1.7;}
+      a{display:inline-block;margin-top:16px;background:#FF6B6B;color:white;padding:12px 28px;border-radius:12px;text-decoration:none;font-weight:700;font-size:15px;}</style></head>
+      <body><p>📱 手機：長按圖片 → 儲存到相簿或傳送<br>💻 電腦：右鍵圖片 → 另存圖片</p>
+      <img src="${state.previewUrl}" alt="代付明細">
+      <br><a href="${state.previewUrl}" download="代付明細_${new Date().toISOString().slice(0,10)}.png">⬇ 下載圖片</a>
+      </body></html>`);
+    w.document.close();
+  }
+  state.confirmMsg=`圖片已在新分頁開啟，是否將這 ${state.previewIds.length} 筆記錄標記為「已結算」？`;
+  state.confirmCb=()=>{ markSettled(state.previewIds,true); exitSelect(); };
+  render();
+}
+
+async function addToList(key) {
+  const input=document.getElementById(`new-${key}`);
+  const v=input.value.trim(); if(!v) return;
+  if(state[key].includes(v)){showToast("已存在","err");return;}
+  state[key]=[...state[key],v]; render(); showToast(`已新增「${v}」`);
+  await withSync(()=>api("saveConfig",key==="items"?{items:state.items}:{methods:state.methods}));
+  render();
+}
+
+async function removeFromList(key, v) {
+  state[key]=state[key].filter(x=>x!==v); render();
+  await withSync(()=>api("saveConfig",key==="items"?{items:state.items}:{methods:state.methods}));
+  render();
+}
+
+// ── Init ───────────────────────────────────────────────────
+(async()=>{
+  try {
+    const [dataRes, cfgRes] = await Promise.all([api("getAll"), api("getConfig")]);
+    state.records = dataRes.records || [];
+    if (cfgRes.items) state.items = cfgRes.items;
+    if (cfgRes.methods) state.methods = cfgRes.methods;
+    state.lastSync = new Date();
+    state.syncError = false;
+  } catch(e) {
+    state.syncError = true;
+  }
+  document.getElementById("loading").style.display="none";
+  render();
+})();
+</script>
+</body>
+</html>
