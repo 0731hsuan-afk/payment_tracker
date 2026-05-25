@@ -484,16 +484,16 @@ function renderForm() {
         ${s.items.map(i=>`<option value="${i}" ${f.item===i?"selected":""}>${i}</option>`).join("")}
         <option value="__custom__" ${f.item==="__custom__"?"selected":""}>＋ 自行輸入</option>
       </select>
-      ${f.item==="__custom__" ? `<input class="input" style="margin-top:8px;" placeholder="輸入項目名稱" value="${f.customItem}" oninput="setForm('customItem',this.value)">` : ""}
+      ${f.item==="__custom__" ? `<input class="input" id="form-custom" style="margin-top:8px;" placeholder="輸入項目名稱" value="${f.customItem}" oninput="state.form.customItem=this.value">` : ""}
       <label class="label">付款金額 *</label>
-      <input type="number" inputmode="decimal" class="input" placeholder="0" value="${f.amount}" oninput="setForm('amount',this.value)">
+      <input type="number" inputmode="decimal" class="input" id="form-amount" placeholder="0" value="${f.amount}" oninput="state.form.amount=this.value">
       <label class="label">付款方式 *</label>
       <select class="input" onchange="setForm('method',this.value)">
         <option value="">請選擇…</option>
         ${s.methods.map(m=>`<option value="${m}" ${f.method===m?"selected":""}>${m}</option>`).join("")}
       </select>
       <label class="label">備註（選填）</label>
-      <input class="input" placeholder="可留空" value="${f.note}" oninput="setForm('note',this.value)">
+      <input class="input" id="form-note" placeholder="可留空" value="${f.note}" oninput="state.form.note=this.value">
       <div class="btn-row">
         <button class="cancel-btn" onclick="setTab('list');resetForm()">取消</button>
         <button class="save-btn" onclick="saveRecord()">${s.editId?"更新":"儲存"}</button>
@@ -570,7 +570,11 @@ function toggleSelect(id) {
   else state.selected.add(id);
   render();
 }
-function setForm(k,v) { state.form[k]=v; if(k==="item") state.form.customItem=""; render(); }
+function setForm(k,v) {
+  state.form[k]=v;
+  // select 變更需要 render（切換自訂項目欄位），文字輸入不需要
+  if(k==="item") { state.form.customItem=""; render(); }
+}
 function resetForm() { state.form={date:todayStr(),item:"",customItem:"",amount:"",method:"",note:""}; state.editId=null; }
 function closeConfirm() { state.confirmCb=null; state.confirmMsg=""; render(); }
 function doConfirm() { if(state.confirmCb) state.confirmCb(); closeConfirm(); }
