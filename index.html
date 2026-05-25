@@ -477,26 +477,26 @@ function renderForm() {
     <div class="form">
       <h2 class="form-title">${s.editId?"✏️ 編輯記錄":"＋ 新增代付"}</h2>
       <label class="label">付款時間 *</label>
-      <input type="date" class="input" value="${f.date}" onchange="setForm('date',this.value)">
+      <input type="date" class="input" id="f-date" value="${f.date}" onchange="state.form.date=this.value">
       <label class="label">付款項目 *</label>
-      <select class="input" onchange="setForm('item',this.value)">
+      <select class="input" id="f-item" onchange="state.form.item=this.value;state.form.customItem='';render()">
         <option value="">請選擇…</option>
         ${s.items.map(i=>`<option value="${i}" ${f.item===i?"selected":""}>${i}</option>`).join("")}
         <option value="__custom__" ${f.item==="__custom__"?"selected":""}>＋ 自行輸入</option>
       </select>
-      ${f.item==="__custom__" ? `<input class="input" id="form-custom" style="margin-top:8px;" placeholder="輸入項目名稱" value="${f.customItem}" oninput="if(!this._composing)state.form.customItem=this.value" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;state.form.customItem=this.value">` : ""}
+      ${f.item==="__custom__" ? `<input class="input" id="f-custom" style="margin-top:8px;" placeholder="輸入項目名稱" value="${f.customItem}">` : ""}
       <label class="label">付款金額 *</label>
-      <input type="number" inputmode="decimal" class="input" id="form-amount" placeholder="0" value="${f.amount}" oninput="state.form.amount=this.value">
+      <input type="number" inputmode="decimal" class="input" id="f-amount" placeholder="0" value="${f.amount}">
       <label class="label">付款方式 *</label>
-      <select class="input" onchange="setForm('method',this.value)">
+      <select class="input" id="f-method" onchange="state.form.method=this.value">
         <option value="">請選擇…</option>
         ${s.methods.map(m=>`<option value="${m}" ${f.method===m?"selected":""}>${m}</option>`).join("")}
       </select>
       <label class="label">備註（選填）</label>
-      <input class="input" id="form-note" placeholder="可留空" value="${f.note}" oninput="if(!this._composing)state.form.note=this.value" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;state.form.note=this.value">
+      <input class="input" id="f-note" placeholder="可留空" value="${f.note}">
       <div class="btn-row">
         <button class="cancel-btn" onclick="setTab('list');resetForm()">取消</button>
-        <button class="save-btn" onclick="saveRecord()">${s.editId?"更新":"儲存"}</button>
+        <button class="save-btn" onclick="collectAndSave()">${s.editId?"更新":"儲存"}</button>
       </div>
     </div>
   `;
@@ -572,7 +572,6 @@ function toggleSelect(id) {
 }
 function setForm(k,v) {
   state.form[k]=v;
-  // select 變更需要 render（切換自訂項目欄位），文字輸入不需要
   if(k==="item") { state.form.customItem=""; render(); }
 }
 function resetForm() { state.form={date:todayStr(),item:"",customItem:"",amount:"",method:"",note:""}; state.editId=null; }
@@ -605,6 +604,23 @@ function confirmClearAll() {
     render(); showToast("已清除所有記錄");
   };
   render();
+}
+
+function collectAndSave() {
+  // 儲存時才從 DOM 讀取，避免 oninput 干擾中文輸入
+  const date = document.getElementById("f-date");
+  const item = document.getElementById("f-item");
+  const custom = document.getElementById("f-custom");
+  const amount = document.getElementById("f-amount");
+  const method = document.getElementById("f-method");
+  const note = document.getElementById("f-note");
+  if (date) state.form.date = date.value;
+  if (item) state.form.item = item.value;
+  if (custom) state.form.customItem = custom.value;
+  if (amount) state.form.amount = amount.value;
+  if (method) state.form.method = method.value;
+  if (note) state.form.note = note.value;
+  saveRecord();
 }
 
 async function saveRecord() {
